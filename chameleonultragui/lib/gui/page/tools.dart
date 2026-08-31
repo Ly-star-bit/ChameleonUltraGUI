@@ -1,7 +1,13 @@
+import 'dart:io';
+
 import 'package:chameleonultragui/generated/i18n/app_localizations.dart';
 import 'package:chameleonultragui/gui/menu/tools/dictionary_download.dart';
 import 'package:chameleonultragui/gui/menu/tools/hf_sniffing.dart';
 import 'package:chameleonultragui/gui/menu/tools/lf_sniffing.dart';
+import 'package:chameleonultragui/gui/menu/tools/location_slots.dart';
+import 'package:chameleonultragui/gui/menu/tools/schedule_slots.dart';
+import 'package:chameleonultragui/gui/menu/tools/smart_copy.dart';
+import 'package:chameleonultragui/gui/menu/tools/troubleshooter.dart';
 import 'package:chameleonultragui/gui/menu/tools/t55xx_password_cleaner.dart';
 import 'package:chameleonultragui/main.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +48,12 @@ class ToolsPageState extends State<ToolsPage> {
 
     List<ToolItem> tools = [
       ToolItem(
+          name: localizations.smart_copy,
+          description: localizations.smart_copy_description,
+          icon: Icons.copy_all,
+          onPressed: const SmartCopyMenu(),
+          isDeviceRequired: true),
+      ToolItem(
           name: localizations.dictionary_download,
           description: localizations.dictionary_download_description,
           icon: Icons.key,
@@ -67,6 +79,22 @@ class ToolsPageState extends State<ToolsPage> {
           description: localizations.mifare_classic_gen4_description,
           icon: Icons.settings,
           isDeviceRequired: true),
+      if (Platform.isAndroid || Platform.isIOS)
+        ToolItem(
+            name: localizations.location_slots,
+            description: localizations.location_slots_description,
+            icon: Icons.my_location,
+            onPressed: const LocationSlotsMenu()),
+      ToolItem(
+          name: localizations.schedule_slots,
+          description: localizations.schedule_slots_description,
+          icon: Icons.schedule,
+          onPressed: const ScheduleSlotsMenu()),
+      ToolItem(
+          name: localizations.troubleshooter,
+          description: localizations.troubleshooter_description,
+          icon: Icons.help_center,
+          onPressed: const TroubleshooterMenu()),
     ];
 
     return Scaffold(

@@ -1,9 +1,12 @@
+import 'package:chameleonultragui/gui/component/card_face.dart';
+import 'package:chameleonultragui/helpers/card_skin.dart';
 import 'package:chameleonultragui/helpers/definitions.dart';
 import 'package:chameleonultragui/helpers/mifare_ultralight/general.dart';
 import 'package:chameleonultragui/helpers/validators.dart';
 import 'package:flutter/material.dart';
 import 'package:chameleonultragui/helpers/general.dart';
 import 'package:chameleonultragui/sharedprefsprovider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:chameleonultragui/main.dart';
@@ -30,6 +33,7 @@ class CardEditMenuState extends State<CardEditMenu> {
   TextEditingController sakController = TextEditingController();
   TextEditingController atqaController = TextEditingController();
   TextEditingController atsController = TextEditingController();
+  TextEditingController tagsController = TextEditingController();
 
   TextEditingController ultralightVersionController = TextEditingController();
   TextEditingController ultralightSignatureController = TextEditingController();
@@ -42,6 +46,8 @@ class CardEditMenuState extends State<CardEditMenu> {
 
   Color pickerColor = Colors.deepOrange;
   Color currentColor = Colors.deepOrange;
+  String? selectedSkinId;
+  String? selectedImagePath;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   String originalUid = '';
@@ -68,6 +74,9 @@ class CardEditMenuState extends State<CardEditMenu> {
     }
 
     nameController.text = widget.tagSave.name;
+    tagsController.text = widget.tagSave.tags.join(", ");
+    selectedSkinId = widget.tagSave.skinId;
+    selectedImagePath = widget.tagSave.imagePath;
     pickerColor = widget.tagSave.color;
     currentColor = widget.tagSave.color;
 
@@ -80,6 +89,54 @@ class CardEditMenuState extends State<CardEditMenu> {
     return uidController.text != originalUid ||
         sakController.text != originalSak ||
         atqaController.text != originalAtqa;
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picked = await ImagePicker()
+          .pickImage(source: source, maxWidth: 1000, imageQuality: 80);
+      if (picked != null) {
+        setState(() {
+          selectedImagePath = picked.path;
+          selectedSkinId = null; // a custom image overrides preset skins
+        });
+      }
+    } catch (_) {
+      // Picker cancelled or unavailable (e.g. no camera) — ignore.
+    }
+  }
+
+  Widget _skinSwatch({
+    Gradient? gradient,
+    bool selected = false,
+    required VoidCallback onTap,
+    Widget? child,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 44,
+          height: 40,
+          decoration: BoxDecoration(
+            gradient: gradient,
+            color: gradient == null
+                ? Theme.of(context).colorScheme.secondaryContainer
+                : null,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 
   Future<bool> showUpdateDataDialog(BuildContext context) async {
@@ -242,6 +299,69 @@ class CardEditMenuState extends State<CardEditMenu> {
                             );
                           },
                         ))),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: tagsController,
+                decoration: InputDecoration(
+                  labelText: localizations.tags,
+                  hintText: localizations.tags_hint,
+                  prefixIcon: const Icon(Icons.label_outline),
+                ),
+              ),
+              const SizedBox(height: 12),
+              CardFace(
+                card: CardSave(
+                  id: widget.tagSave.id,
+                  uid: widget.tagSave.uid,
+                  name: nameController.text,
+                  tag: selectedType,
+                  color: currentColor,
+                  skinId: selectedSkinId,
+                  imagePath: selectedImagePath,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(localizations.card_face,
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _skinSwatch(
+                      selected: selectedSkinId == null &&
+                          selectedImagePath == null,
+                      onTap: () => setState(() {
+                        selectedSkinId = null;
+                        selectedImagePath = null;
+                      }),
+                      child: const Icon(Icons.format_color_reset, size: 20),
+                    ),
+                    for (final skin in cardSkins)
+                      _skinSwatch(
+                        gradient: skin.toGradient(),
+                        selected: selectedSkinId == skin.id &&
+                            selectedImagePath == null,
+                        onTap: () => setState(() {
+                          selectedSkinId = skin.id;
+                          selectedImagePath = null;
+                        }),
+                      ),
+                    _skinSwatch(
+                      onTap: () => _pickImage(ImageSource.gallery),
+                      child: const Icon(Icons.photo_library, size: 20),
+                    ),
+                    _skinSwatch(
+                      onTap: () => _pickImage(ImageSource.camera),
+                      child: const Icon(Icons.photo_camera, size: 20),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 8),
               DropdownButton<TagType>(
@@ -524,6 +644,14 @@ class CardEditMenuState extends State<CardEditMenu> {
                 tag: selectedType,
                 data: cardData,
                 color: currentColor,
+                skinId: selectedSkinId,
+                imagePath: selectedImagePath,
+                pinned: widget.tagSave.pinned,
+                tags: tagsController.text
+                    .split(",")
+                    .map((tag) => tag.trim())
+                    .where((tag) => tag.isNotEmpty)
+                    .toList(),
                 ats: hexToBytes(atsController.text));
 
             var tags = appState.sharedPreferencesProvider.getCards();

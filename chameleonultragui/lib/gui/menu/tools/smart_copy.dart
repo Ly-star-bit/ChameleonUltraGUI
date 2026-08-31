@@ -1,0 +1,219 @@
+import 'dart:typed_data';
+
+import 'package:chameleonultragui/generated/i18n/app_localizations.dart';
+import 'package:chameleonultragui/helpers/definitions.dart';
+import 'package:chameleonultragui/helpers/feedback.dart' as feedback;
+import 'package:chameleonultragui/helpers/general.dart';
+import 'package:chameleonultragui/helpers/slot_write.dart';
+import 'package:chameleonultragui/main.dart';
+import 'package:chameleonultragui/sharedprefsprovider.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+enum CopyStage { idle, reading, writing, done, error }
+
+/// One-tap "clone a physical card": read the card on the reader, pick a free
+/// slot, write it there and start emulating — no manual slot picking or type
+/// selection. Full data is only cloned for cards whose keys are known;
+/// otherwise the UID/anti-collision is cloned, which is enough for UID-based
+/// access systems.
+class SmartCopyMenu extends StatefulWidget {
+  const SmartCopyMenu({super.key});
+
+  @override
+  SmartCopyMenuState createState() => SmartCopyMenuState();
+}
+
+class SmartCopyMenuState extends State<SmartCopyMenu> {
+  CopyStage stage = CopyStage.idle;
+  int progress = 0;
+  String? resultMessage;
+  String? errorMessage;
+
+  Future<int> _firstFreeSlot(ChameleonGUIState appState) async {
+    final enabled = await appState.communicator!.getEnabledSlots();
+    for (int i = 0; i < enabled.length; i++) {
+      if (!enabled[i].any()) {
+        return i;
+      }
+    }
+    // All slots busy — fall back to the currently active one.
+    return appState.communicator!.getActiveSlot();
+  }
+
+  Future<CardSave?> _readCard(
+      ChameleonGUIState appState, AppLocalizations localizations) async {
+    // Try high frequency first.
+    final info = await readHFInfo(context, () {});
+    final hf = info.$1;
+    final mfu = info.$3;
+    if (hf.cardExist && hf.uid.isNotEmpty) {
+      return CardSave(
+        uid: hf.uid,
+        sak: hexToBytes(hf.sak)[0],
+        atqa: hexToBytes(hf.atqa),
+        name: "${localizations.smart_copy} ${hf.uid}",
+        tag: hf.type != TagType.unknown ? hf.type : TagType.mifare1K,
+        data: const [],
+        ats: (hf.ats != localizations.no)
+            ? hexToBytes(hf.ats)
+            : Uint8List(0),
+        extraData: CardSaveExtra(
+          ultralightSignature: mfu.signature,
+          ultralightVersion: mfu.version,
+          ultralightCounters: const [],
+        ),
+      );
+    }
+
+    // Then low frequency.
+    if (!await appState.communicator!.isReaderDeviceMode()) {
+      await appState.communicator!.setReaderDeviceMode(true);
+    }
+    LFCard? lfCard = await appState.communicator!.readEM410X();
+    lfCard ??= await appState.communicator!.readHIDProx();
+    lfCard ??= await appState.communicator!.readViking();
+    lfCard ??= await appState.communicator!.readPac();
+    lfCard ??= await appState.communicator!.readIoProx();
+    if (lfCard != null) {
+      return CardSave(
+        uid: lfCard.toString(),
+        name: "${localizations.smart_copy} ${lfCard.toString()}",
+        tag: lfCard.type,
+      );
+    }
+
+    return null;
+  }
+
+  Future<void> _start() async {
+    final appState = context.read<ChameleonGUIState>();
+    final localizations = AppLocalizations.of(context)!;
+
+    setState(() {
+      stage = CopyStage.reading;
+      progress = 0;
+      resultMessage = null;
+      errorMessage = null;
+    });
+
+    try {
+      final card = await _readCard(appState, localizations);
+      if (card == null) {
+        feedback.AppFeedback.error();
+        setState(() {
+          stage = CopyStage.error;
+          errorMessage = localizations.smart_copy_no_card;
+        });
+        return;
+      }
+
+      final slot = await _firstFreeSlot(appState);
+
+      setState(() {
+        stage = CopyStage.writing;
+      });
+
+      await writeCardToSlot(
+        communicator: appState.communicator!,
+        slot: slot,
+        card: card,
+        noName: localizations.no_name,
+        onProgress: (value) {
+          if (mounted) {
+            setState(() => progress = value);
+          }
+        },
+      );
+
+      // Keep a copy in the saved cards list too.
+      final cards = appState.sharedPreferencesProvider.getCards();
+      cards.add(card);
+      appState.sharedPreferencesProvider.setCards(cards);
+      appState.changesMade();
+
+      feedback.AppFeedback.success();
+      setState(() {
+        stage = CopyStage.done;
+        resultMessage = localizations.smart_copy_done(slot + 1);
+      });
+    } on UnsupportedError {
+      feedback.AppFeedback.error();
+      setState(() {
+        stage = CopyStage.error;
+        errorMessage = localizations.smart_copy_unsupported;
+      });
+    } catch (error) {
+      feedback.AppFeedback.error();
+      setState(() {
+        stage = CopyStage.error;
+        errorMessage = error.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
+    final appState = context.watch<ChameleonGUIState>();
+    final connected = appState.connector?.connected ?? false;
+    final busy = stage == CopyStage.reading || stage == CopyStage.writing;
+
+    return AlertDialog(
+      title: Text(localizations.smart_copy),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              localizations.smart_copy_hint,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 20),
+            if (stage == CopyStage.idle)
+              const Icon(Icons.copy_all, size: 64, color: Colors.grey),
+            if (stage == CopyStage.reading) ...[
+              const CircularProgressIndicator(),
+              const SizedBox(height: 12),
+              Text(localizations.smart_copy_reading),
+            ],
+            if (stage == CopyStage.writing) ...[
+              LinearProgressIndicator(value: progress / 100),
+              const SizedBox(height: 12),
+              Text("${localizations.smart_copy_writing} $progress%"),
+            ],
+            if (stage == CopyStage.done) ...[
+              const Icon(Icons.check_circle, size: 64, color: Colors.green),
+              const SizedBox(height: 12),
+              Text(resultMessage ?? "",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
+            if (stage == CopyStage.error) ...[
+              const Icon(Icons.error, size: 64, color: Colors.orange),
+              const SizedBox(height: 12),
+              Text(errorMessage ?? "", textAlign: TextAlign.center),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.of(context).pop(),
+          child: Text(localizations.close),
+        ),
+        if (stage != CopyStage.done)
+          FilledButton.icon(
+            onPressed: (!connected || busy) ? null : _start,
+            icon: const Icon(Icons.copy),
+            label: Text(stage == CopyStage.error
+                ? localizations.retry
+                : localizations.smart_copy_start),
+          ),
+      ],
+    );
+  }
+}

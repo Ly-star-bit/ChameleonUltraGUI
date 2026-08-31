@@ -6,10 +6,13 @@ import 'package:chameleonultragui/connector/serial_ble.dart';
 import 'package:chameleonultragui/connector/serial_emulator.dart';
 import 'package:chameleonultragui/connector/serial_macos.dart';
 import 'package:chameleonultragui/gui/page/tools.dart';
+import 'package:chameleonultragui/helpers/desktop_tray.dart';
+import 'package:chameleonultragui/helpers/feedback.dart';
 import 'package:chameleonultragui/helpers/font.dart';
 import 'package:chameleonultragui/helpers/general.dart';
+import 'package:chameleonultragui/helpers/ios_theme.dart';
+import 'package:chameleonultragui/helpers/location_slot.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -84,15 +87,64 @@ class ChameleonGUIState extends ChangeNotifier {
   GlobalKey navigationRailKey = GlobalKey();
   Size? navigationRailSize;
 
+  LocationSlotMonitor? locationMonitor;
+
   void changesMade() {
     notifyListeners();
   }
+
+  LocationSlotMonitor ensureLocationMonitor() {
+    return locationMonitor ??= LocationSlotMonitor(
+      prefs: sharedPreferencesProvider,
+      activateSlot: (slot) async {
+        if (communicator != null && (connector?.connected ?? false)) {
+          await communicator!.activateSlot(slot);
+        }
+      },
+      isConnected: () =>
+          communicator != null && (connector?.connected ?? false),
+      log: log,
+    );
+  }
+
+  Future<bool> startLocationMonitor(
+      {String? notificationTitle, String? notificationText}) async {
+    return ensureLocationMonitor().start(
+      notificationTitle: notificationTitle,
+      notificationText: notificationText,
+    );
+  }
+
+  void stopLocationMonitor() {
+    locationMonitor?.stop();
+  }
+
+  void startScheduleMonitor() {
+    ensureLocationMonitor().startSchedule();
+  }
+
+  void stopScheduleMonitor() {
+    locationMonitor?.stopSchedule();
+  }
+
+  bool _wasConnected = false;
 
   void onConnectorStateChanged() {
     if (connector == null || !connector!.connected) {
       communicator = null;
       progress = null;
     }
+
+    final isConnected = connector?.connected ?? false;
+    if (isConnected != _wasConnected) {
+      if (isConnected) {
+        AppFeedback.success();
+      } else {
+        AppFeedback.error();
+      }
+      _wasConnected = isConnected;
+    }
+
     notifyListeners();
   }
 
@@ -148,12 +200,50 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   var selectedIndex = 0;
+  bool _navHidden = false;
+  DesktopTray? _tray;
+
+  Widget _collapsedNavStrip(BuildContext context) {
+    return SafeArea(
+      child: SizedBox(
+        width: 44,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: IconButton(
+            icon: const Icon(Icons.menu),
+            tooltip: AppLocalizations.of(context)!.more,
+            onPressed: () => setState(() => _navHidden = false),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => updateNavigationRailWidth(context));
+
+    if (DesktopTray.isSupported) {
+      final tray = DesktopTray();
+      _tray = tray;
+      tray.onQuit = () => exit(0);
+      tray.onActivateSlot = (slot) {
+        final appState = Provider.of<ChameleonGUIState>(context, listen: false);
+        if (appState.communicator != null &&
+            (appState.connector?.connected ?? false)) {
+          appState.communicator!.activateSlot(slot);
+        }
+      };
+      tray.init();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tray?.dispose();
+    super.dispose();
   }
 
   @override
@@ -220,6 +310,32 @@ class _MainPageState extends State<MainPage> {
 
     appState.devMode = appState.sharedPreferencesProvider.isDebugMode();
 
+    // Location based slot switching only makes sense on mobile (GPS). Keep the
+    // monitor in sync with the saved preference on every rebuild; start() is
+    // idempotent so this is cheap.
+    if (Platform.isAndroid || Platform.isIOS) {
+      if (appState.sharedPreferencesProvider.getLocationSwitchEnabled()) {
+        // MainPage sits above MaterialApp, so AppLocalizations.of(context) is
+        // not available here; look it up directly for the notification text.
+        final loc = lookupAppLocalizations(
+            widget.sharedPreferencesProvider.getLocale());
+        appState.startLocationMonitor(
+          notificationTitle: loc.location_slots,
+          notificationText: loc.location_running_notification,
+        );
+      } else {
+        appState.stopLocationMonitor();
+      }
+
+      if (appState.sharedPreferencesProvider.getScheduleSwitchEnabled()) {
+        appState.startScheduleMonitor();
+      } else {
+        appState.stopScheduleMonitor();
+      }
+    }
+
+    _tray?.sync(connected: appState.connector!.connected);
+
     Widget page; // Set Page
     if (!appState.connector!.connected &&
         selectedIndex != 0 &&
@@ -282,40 +398,17 @@ class _MainPageState extends State<MainPage> {
       locale: widget.sharedPreferencesProvider.getLocale(),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-            seedColor: widget.sharedPreferencesProvider.getThemeColor()),
-        brightness: Brightness.light,
-        appBarTheme: AppBarTheme(
-            systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarColor: ColorScheme.fromSeed(
-                        seedColor:
-                            widget.sharedPreferencesProvider.getThemeColor(),
-                        brightness: Brightness.light)
-                    .surface,
-                statusBarBrightness: Brightness.light,
-                statusBarIconBrightness: Brightness.dark)),
-      ).useCustomSystemFont(Brightness.light),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-            seedColor: widget.sharedPreferencesProvider.getThemeColor(),
-            brightness: Brightness.dark),
-        brightness: Brightness.dark,
-        appBarTheme: AppBarTheme(
-            systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarColor: ColorScheme.fromSeed(
-                        seedColor:
-                            widget.sharedPreferencesProvider.getThemeColor(),
-                        brightness: Brightness.dark)
-                    .surface,
-                statusBarBrightness: Brightness.dark,
-                statusBarIconBrightness: Brightness.light)),
-      ).useCustomSystemFont(Brightness.dark),
+      theme: buildIosTheme(Brightness.light,
+              widget.sharedPreferencesProvider.getThemeColor())
+          .useCustomSystemFont(Brightness.light),
+      darkTheme: buildIosTheme(Brightness.dark,
+              widget.sharedPreferencesProvider.getThemeColor())
+          .useCustomSystemFont(Brightness.dark),
       themeMode: widget.sharedPreferencesProvider.getTheme(), // Dark Theme
       home: LayoutBuilder(// Build Page
           builder: (context, constraints) {
+        final showNav =
+            !appState.connector!.isDFU || !appState.connector!.connected;
         return SafeArea(
           left: false,
           right: false,
@@ -324,11 +417,19 @@ class _MainPageState extends State<MainPage> {
           child: Scaffold(
               body: Row(
                 children: [
-                  (!appState.connector!.isDFU || !appState.connector!.connected)
-                      ? SafeArea(
+                  showNav
+                      ? (_navHidden
+                          ? _collapsedNavStrip(context)
+                          : SafeArea(
                           child: NavigationRail(
                             key: appState.navigationRailKey,
                             // Sidebar
+                            leading: IconButton(
+                              icon: const Icon(Icons.menu_open),
+                              tooltip: AppLocalizations.of(context)!.close,
+                              onPressed: () =>
+                                  setState(() => _navHidden = true),
+                            ),
                             extended: appState.sharedPreferencesProvider
                                 .getSideBarExpanded(),
                             destinations: [
@@ -385,11 +486,11 @@ class _MainPageState extends State<MainPage> {
                               });
                             },
                           ),
-                        )
+                        ))
                       : const SizedBox(),
                   Expanded(
                     child: Container(
-                      color: Theme.of(context).colorScheme.primaryContainer,
+                      color: Theme.of(context).scaffoldBackgroundColor,
                       child: page,
                     ),
                   ),

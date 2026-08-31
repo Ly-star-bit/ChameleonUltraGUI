@@ -67,6 +67,9 @@ dependencies:
   wakelock_plus: ^1.2.4
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
+  image_picker: ^1.1.2
+  geolocator: ^13.0.1
+  tray_manager: ^0.3.2
 
 dev_dependencies:
   flutter_test:

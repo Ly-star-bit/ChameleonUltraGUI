@@ -23,6 +23,9 @@ import 'package:path/path.dart' show basename;
 import 'package:provider/provider.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/card/edit.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/card/create.dart';
+import 'package:chameleonultragui/gui/component/ios_widgets.dart';
+import 'package:chameleonultragui/gui/component/saved_card_tile.dart';
+import 'package:chameleonultragui/gui/menu/dialogs/card/recycle_bin.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/confirm_delete.dart';
 
 // Localizations
@@ -39,6 +42,83 @@ class SavedCardsPageState extends State<SavedCardsPage> {
   TagType selectedType = TagType.unknown;
   String? currentFolderId;
   String? currentDictionaryFolderId;
+  String? activeTagFilter;
+
+  void _togglePinned(CardSave card) {
+    final appState = context.read<ChameleonGUIState>();
+    final cards = appState.sharedPreferencesProvider.getCards();
+    final index = cards.indexWhere((c) => c.id == card.id);
+    if (index != -1) {
+      cards[index].pinned = !cards[index].pinned;
+      appState.sharedPreferencesProvider.setCards(cards);
+      appState.changesMade();
+    }
+  }
+
+  Future<void> _exportCard(CardSave card) async {
+    final localizations = AppLocalizations.of(context)!;
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(localizations.select_save_format),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                await saveTag(card, context, true);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: Text(localizations.save_as(".bin")),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await saveTag(card, context, false);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: Text(localizations.save_as(".json")),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteCard(CardSave card) async {
+    final appState = context.read<ChameleonGUIState>();
+    if (appState.sharedPreferencesProvider.getConfirmDelete() == true) {
+      final confirm = await showDialog(
+        context: context,
+        builder: (BuildContext context) =>
+            ConfirmDeletionMenu(thingBeingDeleted: card.name),
+      );
+      if (confirm != true) return;
+    }
+    appState.sharedPreferencesProvider.moveCardToRecycleBin(card);
+    appState.changesMade();
+  }
+
+  void _onCardAction(CardSave card, SavedCardAction action) {
+    switch (action) {
+      case SavedCardAction.pin:
+        _togglePinned(card);
+        break;
+      case SavedCardAction.edit:
+        showDialog(
+          context: context,
+          builder: (BuildContext context) => CardEditMenu(tagSave: card),
+        );
+        break;
+      case SavedCardAction.move:
+        _moveCard(card);
+        break;
+      case SavedCardAction.export:
+        _exportCard(card);
+        break;
+      case SavedCardAction.delete:
+        _deleteCard(card);
+        break;
+    }
+  }
 
   Future<void> _createCard() async {
     await showDialog(
@@ -686,8 +766,28 @@ class SavedCardsPageState extends State<SavedCardsPage> {
             );
     final allTags = appState.sharedPreferencesProvider.getCards();
     final allFolders = appState.sharedPreferencesProvider.getCardFolders();
-    final tags =
+    final cardsInFolder =
         allTags.where((tag) => tag.folderId == currentFolderId).toList();
+    // All distinct tag labels present in this folder, for the filter bar.
+    final availableTagLabels = <String>{
+      for (final card in cardsInFolder) ...card.tags
+    }.toList()
+      ..sort();
+    // Drop a stale filter that no longer matches anything here.
+    if (activeTagFilter != null &&
+        !availableTagLabels.contains(activeTagFilter)) {
+      activeTagFilter = null;
+    }
+    final filteredCards = cardsInFolder
+        .where((tag) =>
+            activeTagFilter == null || tag.tags.contains(activeTagFilter))
+        .toList();
+    // Pinned cards float to the top, preserving original order within each
+    // group (Dart's sort is not stable, so partition manually).
+    final tags = [
+      ...filteredCards.where((card) => card.pinned),
+      ...filteredCards.where((card) => !card.pinned),
+    ];
     final folders = allFolders
         .where((folder) => folder.parentId == currentFolderId)
         .toList();
@@ -744,6 +844,19 @@ class SavedCardsPageState extends State<SavedCardsPage> {
                 ),
                 icon: const Icon(Icons.arrow_back),
               ),
+        actions: [
+          IconButton(
+            tooltip: localizations.recycle_bin,
+            icon: const Icon(Icons.delete_sweep),
+            onPressed: () async {
+              await showDialog(
+                context: context,
+                builder: (BuildContext context) => const RecycleBinMenu(),
+              );
+              setState(() {});
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -1266,8 +1379,43 @@ class SavedCardsPageState extends State<SavedCardsPage> {
                       )
                     ]),
               ),
+              if (availableTagLabels.isNotEmpty)
+                SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: FilterChip(
+                          label: Text(localizations.all),
+                          selected: activeTagFilter == null,
+                          onSelected: (_) =>
+                              setState(() => activeTagFilter = null),
+                        ),
+                      ),
+                      for (final label in availableTagLabels)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text("#$label"),
+                            selected: activeTagFilter == label,
+                            onSelected: (selected) => setState(() =>
+                                activeTagFilter = selected ? label : null),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               Expanded(
-                  child: SingleChildScrollView(
+                  child: (folders.isEmpty && tags.isEmpty)
+                      ? EmptyState(
+                          icon: Icons.credit_card_off,
+                          title: localizations.no_cards,
+                          subtitle: localizations.no_cards_hint,
+                        )
+                      : SingleChildScrollView(
                       child: AlignedGridView.count(
                           clipBehavior: Clip.antiAlias,
                           physics: const NeverScrollableScrollPhysics(),
@@ -1323,117 +1471,22 @@ class SavedCardsPageState extends State<SavedCardsPage> {
                               );
                             }
                             final tag = tags[index - folders.length];
-                            return ElementButton(
-                              icon: (chameleonTagToFrequency(tag.tag) ==
-                                      TagFrequency.hf)
-                                  ? Icons.credit_card
-                                  : Icons.wifi,
-                              iconColor: tag.color,
-                              firstLine: tag.name.isEmpty ? "⠀" : tag.name,
-                              secondLine:
-                                  chameleonCardToString(tag, localizations),
-                              itemIndex: index,
-                              onPressed: () {
+                            return SavedCardTile(
+                              card: tag,
+                              onTap: () {
                                 showDialog(
-                                    context: context,
-                                    builder: (BuildContext context) {
-                                      return CardViewMenu(
-                                        tagSave: tag,
-                                        onMove: _moveCard,
-                                      );
-                                    });
+                                  context: context,
+                                  builder: (BuildContext context) {
+                                    return CardViewMenu(
+                                      tagSave: tag,
+                                      onMove: _moveCard,
+                                    );
+                                  },
+                                );
                               },
-                              children: [
-                                IconButton(
-                                  tooltip: localizations.move_card,
-                                  onPressed: () => _moveCard(tag),
-                                  icon:
-                                      const Icon(Icons.drive_file_move_outline),
-                                ),
-                                IconButton(
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (BuildContext context) {
-                                        return CardEditMenu(tagSave: tag);
-                                      },
-                                    );
-                                  },
-                                  icon: const Icon(Icons.edit),
-                                ),
-                                IconButton(
-                                  onPressed: () async {
-                                    await showDialog(
-                                      context: context,
-                                      builder: (BuildContext context) {
-                                        return AlertDialog(
-                                          title: Text(
-                                              localizations.select_save_format),
-                                          actions: [
-                                            ElevatedButton(
-                                              onPressed: () async {
-                                                await saveTag(
-                                                    tag, context, true);
-                                                if (context.mounted) {
-                                                  Navigator.pop(context);
-                                                }
-                                              },
-                                              child: Text(localizations
-                                                  .save_as(".bin")),
-                                            ),
-                                            ElevatedButton(
-                                              onPressed: () async {
-                                                await saveTag(
-                                                    tag, context, false);
-                                                if (context.mounted) {
-                                                  Navigator.pop(context);
-                                                }
-                                              },
-                                              child: Text(localizations
-                                                  .save_as(".json")),
-                                            ),
-                                          ],
-                                        );
-                                      },
-                                    );
-                                  },
-                                  icon: const Icon(Icons.download),
-                                ),
-                                IconButton(
-                                  onPressed: () async {
-                                    if (appState.sharedPreferencesProvider
-                                            .getConfirmDelete() ==
-                                        true) {
-                                      var confirm = await showDialog(
-                                        context: context,
-                                        builder: (BuildContext context) {
-                                          return ConfirmDeletionMenu(
-                                              thingBeingDeleted: tag.name);
-                                        },
-                                      );
-
-                                      if (confirm != true) {
-                                        return;
-                                      }
-                                    }
-                                    var tags = appState
-                                        .sharedPreferencesProvider
-                                        .getCards();
-                                    List<CardSave> output = [];
-                                    for (var tagTest in tags) {
-                                      if (tagTest.id != tag.id) {
-                                        output.add(tagTest);
-                                      }
-                                    }
-                                    appState.sharedPreferencesProvider
-                                        .setCards(output);
-                                    appState.changesMade();
-                                  },
-                                  icon: const Icon(Icons.delete_outline),
-                                ),
-                              ],
+                              onAction: (action) => _onCardAction(tag, action),
                             );
-                          }))),
+                                                    }))),
             ])),
           ),
           Expanded(

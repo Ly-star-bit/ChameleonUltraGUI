@@ -1,3 +1,4 @@
+import 'package:chameleonultragui/gui/component/antenna_guide.dart';
 import 'package:chameleonultragui/gui/component/card_button.dart';
 import 'package:chameleonultragui/gui/component/mifare/classic.dart';
 import 'package:chameleonultragui/gui/component/error_message.dart';
@@ -313,6 +314,18 @@ class ReadCardPageState extends State<ReadCardPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(localizations.read_card),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: localizations.antenna_guide_title,
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (BuildContext context) => const AntennaGuideDialog(),
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(

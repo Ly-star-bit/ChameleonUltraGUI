@@ -1,3 +1,4 @@
+import 'package:chameleonultragui/gui/component/card_face.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/card/edit.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/dictionary/export.dart';
 import 'package:chameleonultragui/gui/menu/pages/dump_editor.dart';
@@ -79,6 +80,12 @@ class CardViewMenuState extends State<CardViewMenu> {
           child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
+          if (currentSavedCard.skinId != null ||
+              (currentSavedCard.imagePath != null &&
+                  currentSavedCard.imagePath!.isNotEmpty)) ...[
+            CardFace(card: currentSavedCard),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Expanded(

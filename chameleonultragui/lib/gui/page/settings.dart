@@ -1,5 +1,6 @@
 import 'package:chameleonultragui/gui/component/developer_list.dart';
 import 'package:chameleonultragui/gui/component/error_page.dart';
+import 'package:chameleonultragui/helpers/colors.dart' as colors;
 import 'package:chameleonultragui/gui/component/toggle_buttons.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/qr/settings.dart';
 import 'package:chameleonultragui/helpers/general.dart';
@@ -140,48 +141,40 @@ class SettingsMainPageState extends State<SettingsMainPage> {
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 5),
-              DropdownButton(
-                value: appState.sharedPreferencesProvider.getThemeColorIndex(),
-                icon: const Icon(Icons.arrow_downward),
-                elevation: 16,
-                onChanged: (value) {
-                  appState.sharedPreferencesProvider.setThemeColor(value ?? 0);
-                  appState.changesMade();
-                },
-                items: [
-                  DropdownMenuItem(
-                    value: 0,
-                    child: Text(localizations.def),
-                  ),
-                  DropdownMenuItem(
-                    value: 1,
-                    child: Text(localizations.purple),
-                  ),
-                  DropdownMenuItem(
-                    value: 2,
-                    child: Text(localizations.blue),
-                  ),
-                  DropdownMenuItem(
-                    value: 3,
-                    child: Text(localizations.green),
-                  ),
-                  DropdownMenuItem(
-                    value: 4,
-                    child: Text(localizations.indigo),
-                  ),
-                  DropdownMenuItem(
-                    value: 5,
-                    child: Text(localizations.lime),
-                  ),
-                  DropdownMenuItem(
-                    value: 6,
-                    child: Text(localizations.red),
-                  ),
-                  DropdownMenuItem(
-                    value: 7,
-                    child: Text(localizations.yellow),
-                  ),
-                ],
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 14,
+                runSpacing: 14,
+                children: List.generate(8, (i) {
+                  final swatch = colors.getThemeColor(i);
+                  final selected = appState.sharedPreferencesProvider
+                          .getThemeColorIndex() ==
+                      i;
+                  return GestureDetector(
+                    onTap: () {
+                      appState.sharedPreferencesProvider.setThemeColor(i);
+                      appState.changesMade();
+                    },
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: swatch,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selected
+                              ? Theme.of(context).colorScheme.onSurface
+                              : Colors.transparent,
+                          width: 2.5,
+                        ),
+                      ),
+                      child: selected
+                          ? const Icon(Icons.check,
+                              color: Colors.white, size: 20)
+                          : null,
+                    ),
+                  );
+                }),
               ),
               const SizedBox(height: 10),
               Text(

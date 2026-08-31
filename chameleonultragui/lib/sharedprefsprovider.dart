@@ -204,6 +204,10 @@ class CardSave {
   CardSaveExtra extraData;
   Color color;
   String? folderId;
+  String? skinId; // Preset card face id
+  String? imagePath; // User supplied card face image
+  bool pinned;
+  List<String> tags;
 
   factory CardSave.fromJson(String json) {
     Map<String, dynamic> data = jsonDecode(json);
@@ -218,6 +222,13 @@ class CardSave {
     final color =
         data['color'] == null ? Colors.deepOrange : hexToColor(data['color']);
     final folderId = data['folderId'] as String?;
+    final skinId = data['skinId'] as String?;
+    final imagePath = data['imagePath'] as String?;
+    final pinned = data['pinned'] as bool? ?? false;
+    final tags = (data['tags'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        <String>[];
     List<Uint8List> tagData = (data['data'] as List<dynamic>)
         .map((e) => Uint8List.fromList(List<int>.from(e)))
         .toList();
@@ -231,6 +242,10 @@ class CardSave {
         data: tagData,
         color: color,
         folderId: folderId,
+        skinId: skinId,
+        imagePath: imagePath,
+        pinned: pinned,
+        tags: tags,
         extraData: extraData,
         ats: Uint8List.fromList(ats),
         atqa: Uint8List.fromList(atqa));
@@ -249,6 +264,10 @@ class CardSave {
       'data': data.map((data) => data.toList()).toList(),
       'extra': extraData.export(),
       if (folderId != null) 'folderId': folderId,
+      if (skinId != null) 'skinId': skinId,
+      if (imagePath != null) 'imagePath': imagePath,
+      if (pinned) 'pinned': pinned,
+      if (tags.isNotEmpty) 'tags': tags,
     });
   }
 
@@ -263,11 +282,16 @@ class CardSave {
     CardSaveExtra? extraData,
     this.color = Colors.deepOrange,
     this.folderId,
+    this.skinId,
+    this.imagePath,
+    this.pinned = false,
+    List<String>? tags,
     this.data = const [],
   })  : id = id ?? const Uuid().v4(),
         sak = sak ?? 0,
         atqa = atqa ?? Uint8List(0),
         ats = ats ?? Uint8List(0),
+        tags = tags ?? <String>[],
         extraData = extraData ?? CardSaveExtra();
 }
 
@@ -393,6 +417,142 @@ class CardSaveExtra {
         ultralightCounters = ultralightCounters ?? <int>[];
 }
 
+/// A saved place (home, office, ...) bound to a device slot. When the user
+/// enters [radius] meters of ([latitude], [longitude]) the app can auto
+/// activate the emulated card in [slot] (0-7).
+class LocationSlot {
+  String id;
+  String name;
+  double latitude;
+  double longitude;
+  double radius; // meters
+  int slot; // 0-7
+  bool enabled;
+
+  LocationSlot({
+    String? id,
+    required this.name,
+    required this.latitude,
+    required this.longitude,
+    this.radius = 150,
+    this.slot = 0,
+    this.enabled = true,
+  }) : id = id ?? const Uuid().v4();
+
+  factory LocationSlot.fromJson(String source) {
+    final data = jsonDecode(source) as Map<String, dynamic>;
+    return LocationSlot(
+      id: data['id'] as String,
+      name: data['name'] as String,
+      latitude: (data['latitude'] as num).toDouble(),
+      longitude: (data['longitude'] as num).toDouble(),
+      radius: (data['radius'] as num?)?.toDouble() ?? 150,
+      slot: (data['slot'] as num?)?.toInt() ?? 0,
+      enabled: data['enabled'] as bool? ?? true,
+    );
+  }
+
+  String toJson() => jsonEncode({
+        'id': id,
+        'name': name,
+        'latitude': latitude,
+        'longitude': longitude,
+        'radius': radius,
+        'slot': slot,
+        'enabled': enabled,
+      });
+}
+
+/// A time-based rule that activates [slot] during a daily window. [weekdays]
+/// uses DateTime weekday numbering (1=Mon .. 7=Sun); an empty list means every
+/// day. Windows where [startMinutes] > [endMinutes] wrap past midnight.
+class ScheduleSlot {
+  String id;
+  String name;
+  int startMinutes; // minutes since midnight
+  int endMinutes;
+  List<int> weekdays;
+  int slot; // 0-7
+  bool enabled;
+
+  ScheduleSlot({
+    String? id,
+    required this.name,
+    this.startMinutes = 8 * 60,
+    this.endMinutes = 18 * 60,
+    List<int>? weekdays,
+    this.slot = 0,
+    this.enabled = true,
+  })  : id = id ?? const Uuid().v4(),
+        weekdays = weekdays ?? <int>[];
+
+  /// Whether the given time falls inside this rule's window and weekday set.
+  bool matches(DateTime now) {
+    if (!enabled) {
+      return false;
+    }
+    if (weekdays.isNotEmpty && !weekdays.contains(now.weekday)) {
+      return false;
+    }
+    final minutes = now.hour * 60 + now.minute;
+    if (startMinutes <= endMinutes) {
+      return minutes >= startMinutes && minutes < endMinutes;
+    }
+    // Wraps past midnight, e.g. 22:00 -> 06:00
+    return minutes >= startMinutes || minutes < endMinutes;
+  }
+
+  factory ScheduleSlot.fromJson(String source) {
+    final data = jsonDecode(source) as Map<String, dynamic>;
+    return ScheduleSlot(
+      id: data['id'] as String,
+      name: data['name'] as String,
+      startMinutes: (data['startMinutes'] as num?)?.toInt() ?? 8 * 60,
+      endMinutes: (data['endMinutes'] as num?)?.toInt() ?? 18 * 60,
+      weekdays: (data['weekdays'] as List<dynamic>?)
+              ?.map((e) => (e as num).toInt())
+              .toList() ??
+          <int>[],
+      slot: (data['slot'] as num?)?.toInt() ?? 0,
+      enabled: data['enabled'] as bool? ?? true,
+    );
+  }
+
+  String toJson() => jsonEncode({
+        'id': id,
+        'name': name,
+        'startMinutes': startMinutes,
+        'endMinutes': endMinutes,
+        'weekdays': weekdays,
+        'slot': slot,
+        'enabled': enabled,
+      });
+}
+
+/// A card that was deleted and can still be restored. Entries older than
+/// [RecycleBinEntry.retentionDays] are purged automatically.
+class RecycleBinEntry {
+  static const int retentionDays = 30;
+
+  final CardSave card;
+  final int deletedAt; // millisecondsSinceEpoch
+
+  RecycleBinEntry({required this.card, required this.deletedAt});
+
+  factory RecycleBinEntry.fromJson(String source) {
+    final data = jsonDecode(source) as Map<String, dynamic>;
+    return RecycleBinEntry(
+      card: CardSave.fromJson(jsonEncode(data['card'])),
+      deletedAt: (data['deletedAt'] as num).toInt(),
+    );
+  }
+
+  String toJson() => jsonEncode({
+        'card': jsonDecode(card.toJson()),
+        'deletedAt': deletedAt,
+      });
+}
+
 class SharedPreferencesProvider extends ChangeNotifier {
   SharedPreferencesProvider._privateConstructor();
 
@@ -443,7 +603,8 @@ class SharedPreferencesProvider extends ChangeNotifier {
   }
 
   int getThemeColorIndex() {
-    return _sharedPreferences.getInt('app_theme_color') ?? 0;
+    // Default to iOS blue (index 2) so the app reads as iOS out of the box.
+    return _sharedPreferences.getInt('app_theme_color') ?? 2;
   }
 
   MaterialColor getThemeColor() {
@@ -679,5 +840,110 @@ class SharedPreferencesProvider extends ChangeNotifier {
 
   void setAutoConnectFirstFoundDevice(bool value) {
     _sharedPreferences.setBool('auto_connect_first_found', value);
+  }
+
+  List<LocationSlot> getLocationSlots() {
+    final data = _sharedPreferences.getStringList('location_slots') ?? [];
+    return data.map(LocationSlot.fromJson).toList();
+  }
+
+  void setLocationSlots(List<LocationSlot> slots) {
+    _sharedPreferences.setStringList(
+        'location_slots', slots.map((slot) => slot.toJson()).toList());
+    notifyListeners();
+  }
+
+  bool getLocationSwitchEnabled() {
+    return _sharedPreferences.getBool('location_switch_enabled') ?? false;
+  }
+
+  void setLocationSwitchEnabled(bool value) {
+    _sharedPreferences.setBool('location_switch_enabled', value);
+    notifyListeners();
+  }
+
+  List<ScheduleSlot> getScheduleSlots() {
+    final data = _sharedPreferences.getStringList('schedule_slots') ?? [];
+    return data.map(ScheduleSlot.fromJson).toList();
+  }
+
+  void setScheduleSlots(List<ScheduleSlot> slots) {
+    _sharedPreferences.setStringList(
+        'schedule_slots', slots.map((slot) => slot.toJson()).toList());
+    notifyListeners();
+  }
+
+  bool getScheduleSwitchEnabled() {
+    return _sharedPreferences.getBool('schedule_switch_enabled') ?? false;
+  }
+
+  void setScheduleSwitchEnabled(bool value) {
+    _sharedPreferences.setBool('schedule_switch_enabled', value);
+    notifyListeners();
+  }
+
+  List<RecycleBinEntry> getRecycleBin() {
+    final data = _sharedPreferences.getStringList('recycle_bin') ?? [];
+    return data.map(RecycleBinEntry.fromJson).toList();
+  }
+
+  void _setRecycleBin(List<RecycleBinEntry> entries) {
+    _sharedPreferences.setStringList(
+        'recycle_bin', entries.map((entry) => entry.toJson()).toList());
+  }
+
+  /// Removes entries older than the retention window. Returns the survivors.
+  List<RecycleBinEntry> purgeExpiredRecycleBin() {
+    final cutoff = DateTime.now()
+        .subtract(const Duration(days: RecycleBinEntry.retentionDays))
+        .millisecondsSinceEpoch;
+    final entries =
+        getRecycleBin().where((entry) => entry.deletedAt >= cutoff).toList();
+    _setRecycleBin(entries);
+    return entries;
+  }
+
+  void moveCardToRecycleBin(CardSave card) {
+    final entries = getRecycleBin();
+    entries.add(RecycleBinEntry(
+        card: card, deletedAt: DateTime.now().millisecondsSinceEpoch));
+    _setRecycleBin(entries);
+
+    final cards = getCards()..removeWhere((c) => c.id == card.id);
+    setCards(cards);
+  }
+
+  void restoreFromRecycleBin(String cardId) {
+    final entries = getRecycleBin();
+    final entry = entries.cast<RecycleBinEntry?>().firstWhere(
+          (e) => e?.card.id == cardId,
+          orElse: () => null,
+        );
+    if (entry == null) {
+      return;
+    }
+    entries.removeWhere((e) => e.card.id == cardId);
+    _setRecycleBin(entries);
+
+    final cards = getCards();
+    // Guard against duplicate ids if the card was somehow re-created.
+    if (!cards.any((c) => c.id == entry.card.id)) {
+      cards.add(entry.card);
+      setCards(cards);
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void deleteFromRecycleBin(String cardId) {
+    final entries = getRecycleBin()
+      ..removeWhere((e) => e.card.id == cardId);
+    _setRecycleBin(entries);
+    notifyListeners();
+  }
+
+  void emptyRecycleBin() {
+    _setRecycleBin([]);
+    notifyListeners();
   }
 }

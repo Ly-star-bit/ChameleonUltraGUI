@@ -1,9 +1,24 @@
 import 'package:flutter/material.dart';
 
+/// iOS system blue (#007AFF) as a Material swatch, used for the "Blue" option
+/// and as the default accent so the app reads as iOS out of the box.
+const MaterialColor iosBlue = MaterialColor(0xFF007AFF, {
+  50: Color(0xFFE5F1FF),
+  100: Color(0xFFB8D9FF),
+  200: Color(0xFF8ABFFF),
+  300: Color(0xFF5CA5FF),
+  400: Color(0xFF2E8BFF),
+  500: Color(0xFF007AFF),
+  600: Color(0xFF006EE6),
+  700: Color(0xFF005EC4),
+  800: Color(0xFF004EA3),
+  900: Color(0xFF003A7A),
+});
+
 const _themeColors = [
   Colors.deepOrange,
   Colors.deepPurple,
-  Colors.blue,
+  iosBlue,
   Colors.green,
   Colors.indigo,
   Colors.lime,

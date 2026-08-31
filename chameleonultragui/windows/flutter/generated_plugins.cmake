@@ -3,8 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  file_selector_windows
   flutter_libserialport
+  geolocator_windows
   permission_handler_windows
+  tray_manager
   url_launcher_windows
 )
 
