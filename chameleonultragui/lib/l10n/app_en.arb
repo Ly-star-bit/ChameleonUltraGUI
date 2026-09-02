@@ -655,5 +655,19 @@
   "more": "More",
   "edit": "Edit",
   "no_cards": "No saved cards",
-  "no_cards_hint": "Read a card or import one to see it here."
+  "no_cards_hint": "Read a card or import one to see it here.",
+  "disconnect": "Disconnect",
+  "battery": "Battery",
+  "status": "Status",
+  "active_slot": "Active slot",
+  "mode": "Mode",
+  "appearance": "Appearance",
+  "connection": "Connection",
+  "general": "General",
+  "backup_restore": "Backup & restore",
+  "developer": "Developer",
+  "searching_for_devices": "Searching for devices…",
+  "no_devices_found": "No devices found",
+  "no_devices_hint": "Plug in your Chameleon over USB, or turn on Bluetooth and bring it nearby.",
+  "tap_slot_to_activate": "Tap a slot to activate it"
 }

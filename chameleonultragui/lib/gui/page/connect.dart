@@ -4,6 +4,7 @@ import 'package:chameleonultragui/bridge/chameleon.dart';
 import 'package:chameleonultragui/connector/serial_abstract.dart';
 import 'package:chameleonultragui/connector/serial_android.dart';
 import 'package:chameleonultragui/gui/component/error_page.dart';
+import 'package:chameleonultragui/gui/component/ios_widgets.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/manual_connect.dart';
 import 'package:chameleonultragui/helpers/flash.dart';
 import 'package:chameleonultragui/helpers/general.dart';
@@ -338,82 +339,232 @@ class _ConnectPageState extends State<ConnectPage> {
     );
   }
 
-  Widget _buildDeviceGrid(AppLocalizations localizations) {
-    return GridView(
-      padding: const EdgeInsets.all(20),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 1,
+  Widget _deviceImage(Chameleon chameleonDevice,
+      {BoxFit fit = BoxFit.contain}) {
+    return Image.asset(
+      chameleonDevice.device == ChameleonDevice.ultra
+          ? 'assets/black-ultra-standing-front.webp'
+          : 'assets/black-lite-standing-front.webp',
+      fit: fit,
+      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _dfuBadge(AppLocalizations localizations) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(8),
       ),
-      scrollDirection: Axis.vertical,
-      children: [
-        ..._devices.map<Widget>((chameleonDevice) {
-          return ElevatedButton(
-            onPressed: () => _connectToDevice(chameleonDevice),
-            style: ButtonStyle(
-              shape: WidgetStateProperty.all<RoundedRectangleBorder>(
-                RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18.0),
-                ),
-              ),
-            ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: FittedBox(
-                    alignment: Alignment.centerRight,
-                    fit: BoxFit.scaleDown,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+      child: Text(
+        localizations.dfu,
+        style: const TextStyle(
+          color: Colors.orange,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  /// Phone layout: one full-width row per device with a thumbnail, name,
+  /// port and a chevron.
+  Widget _buildDeviceList(AppLocalizations localizations) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      itemCount: _devices.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (BuildContext context, int index) {
+        final chameleonDevice = _devices[index];
+        return Card(
+          margin: EdgeInsets.zero,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _connectionInProgress
+                ? null
+                : () => _connectToDevice(chameleonDevice),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 56,
+                    height: 76,
+                    child: _deviceImage(chameleonDevice),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            chameleonDevice.type == ConnectionType.ble
-                                ? const Icon(Icons.bluetooth)
-                                : const Icon(Icons.usb),
-                            Text(chameleonDevice.port ?? ""),
-                            if (chameleonDevice.dfu) Text(localizations.dfu),
+                            Flexible(
+                              child: Text(
+                                "Chameleon ${chameleonDeviceName(chameleonDevice.device)}",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (chameleonDevice.dfu) ...[
+                              const SizedBox(width: 8),
+                              _dfuBadge(localizations),
+                            ],
                           ],
-                        )
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              chameleonDevice.type == ConnectionType.ble
+                                  ? Icons.bluetooth
+                                  : Icons.usb,
+                              size: 16,
+                              color: muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                chameleonDevice.port ?? "",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 13, color: muted),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
-                ),
-                FittedBox(
-                  alignment: Alignment.topRight,
-                  fit: BoxFit.scaleDown,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
+                  Icon(Icons.chevron_right, color: muted),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Wide layout: a grid of cards with the device render on top.
+  Widget _buildDeviceGrid(AppLocalizations localizations) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        crossAxisSpacing: 14,
+        mainAxisSpacing: 14,
+        childAspectRatio: 0.78,
+      ),
+      itemCount: _devices.length,
+      itemBuilder: (BuildContext context, int index) {
+        final chameleonDevice = _devices[index];
+        return Card(
+          margin: EdgeInsets.zero,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _connectionInProgress
+                ? null
+                : () => _connectToDevice(chameleonDevice),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: _deviceImage(chameleonDevice)),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Chameleon ${chameleonDeviceName(chameleonDevice.device)}",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
                     children: [
-                      Text(
-                        "Chameleon ${chameleonDeviceName(chameleonDevice.device)}",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 20,
+                      Icon(
+                        chameleonDevice.type == ConnectionType.ble
+                            ? Icons.bluetooth
+                            : Icons.usb,
+                        size: 16,
+                        color: muted,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          chameleonDevice.port ?? "",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 13, color: muted),
                         ),
                       ),
+                      if (chameleonDevice.dfu) _dfuBadge(localizations),
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: Image.asset(
-                    chameleonDevice.device == ChameleonDevice.ultra
-                        ? 'assets/black-ultra-standing-front.webp'
-                        : 'assets/black-lite-standing-front.webp',
-                    fit: BoxFit.fitHeight,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
+                ],
+              ),
             ),
-          );
-        }),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(AppLocalizations localizations) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    final autoScan = _appState.sharedPreferencesProvider.getAutoScanEnabled();
+
+    return ListView(
+      // Keep the page scrollable so pull-to-refresh works on an empty list.
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(32, 48, 32, 96),
+      children: [
+        Icon(Icons.devices_other, size: 72, color: muted),
+        const SizedBox(height: 20),
+        Text(
+          localizations.no_devices_found,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          localizations.no_devices_hint,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+        ),
+        const SizedBox(height: 24),
+        if (autoScan)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const AdaptiveProgress(radius: 8),
+              const SizedBox(width: 10),
+              Text(
+                localizations.searching_for_devices,
+                style: TextStyle(fontSize: 13, color: muted),
+              ),
+            ],
+          )
+        else
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: () => _scanNow(manual: true),
+              icon: const Icon(Icons.refresh),
+              label: Text(localizations.retry),
+            ),
+          ),
       ],
     );
   }
@@ -422,6 +573,7 @@ class _ConnectPageState extends State<ConnectPage> {
   Widget build(BuildContext context) {
     final appState = context.watch<ChameleonGUIState>();
     final localizations = AppLocalizations.of(context)!;
+    final isPhone = MediaQuery.of(context).size.width < 600;
 
     if (_error != null) {
       return Scaffold(
@@ -432,49 +584,71 @@ class _ConnectPageState extends State<ConnectPage> {
       );
     }
 
+    final Widget body;
+    if (_isLoading && !_initialScanCompleted) {
+      body = Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AdaptiveProgress(radius: 14),
+            const SizedBox(height: 16),
+            Text(
+              localizations.searching_for_devices,
+              style: TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.55),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (_devices.isEmpty) {
+      body = _buildEmptyState(localizations);
+    } else if (isPhone) {
+      body = _buildDeviceList(localizations);
+    } else {
+      body = _buildDeviceGrid(localizations);
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(localizations.connect),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Align(
-              alignment: Alignment.topRight,
-              child: IconButton(
-                onPressed: () => _scanNow(manual: true),
-                icon: const Icon(Icons.refresh),
-              ),
+        actions: [
+          if (_scanInProgress && _initialScanCompleted)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: AdaptiveProgress(radius: 9),
+            )
+          else
+            IconButton(
+              tooltip: localizations.retry,
+              onPressed: () => _scanNow(manual: true),
+              icon: const Icon(Icons.refresh),
             ),
-            Expanded(
-              child: (_isLoading && !_initialScanCompleted)
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildDeviceGrid(localizations),
-            ),
-            if (appState.connector!.isManualConnectionSupported())
-              Align(
-                alignment: Alignment.bottomRight,
-                child: Row(
-                  children: [
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: IconButton(
-                        onPressed: () => showDialog<String>(
-                          context: context,
-                          builder: (BuildContext dialogContext) =>
-                              const ManualConnect(),
-                        ),
-                        icon: const Icon(Icons.add),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
+        ],
+        bottom: _connectionInProgress
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: LinearProgressIndicator(minHeight: 2),
+              )
+            : null,
       ),
+      body: RefreshIndicator(
+        onRefresh: () => _scanNow(manual: true),
+        child: body,
+      ),
+      floatingActionButton: appState.connector!.isManualConnectionSupported()
+          ? FloatingActionButton.extended(
+              onPressed: () => showDialog<String>(
+                context: context,
+                builder: (BuildContext dialogContext) => const ManualConnect(),
+              ),
+              icon: const Icon(Icons.add),
+              label: Text(localizations.connect_manually),
+            )
+          : null,
     );
   }
 }

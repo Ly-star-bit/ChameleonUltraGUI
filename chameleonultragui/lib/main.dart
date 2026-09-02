@@ -401,14 +401,27 @@ class _MainPageState extends State<MainPage> {
       theme: buildIosTheme(Brightness.light,
               widget.sharedPreferencesProvider.getThemeColor())
           .useCustomSystemFont(Brightness.light),
-      darkTheme: buildIosTheme(Brightness.dark,
-              widget.sharedPreferencesProvider.getThemeColor())
+      darkTheme: buildIosTheme(
+              Brightness.dark, widget.sharedPreferencesProvider.getThemeColor())
           .useCustomSystemFont(Brightness.dark),
       themeMode: widget.sharedPreferencesProvider.getTheme(), // Dark Theme
       home: LayoutBuilder(// Build Page
           builder: (context, constraints) {
         final showNav =
             !appState.connector!.isDFU || !appState.connector!.connected;
+        final isPhone = constraints.maxWidth < 600;
+
+        if (isPhone) {
+          // Phones: Android/iOS-style bottom tab bar instead of a side rail,
+          // so the page gets the full width of the screen.
+          return Scaffold(
+            body: page,
+            bottomNavigationBar: showNav
+                ? _buildBottomNavigation(context, appState)
+                : const SafeArea(child: BottomProgressBar()),
+          );
+        }
+
         return SafeArea(
           left: false,
           right: false,
@@ -421,72 +434,27 @@ class _MainPageState extends State<MainPage> {
                       ? (_navHidden
                           ? _collapsedNavStrip(context)
                           : SafeArea(
-                          child: NavigationRail(
-                            key: appState.navigationRailKey,
-                            // Sidebar
-                            leading: IconButton(
-                              icon: const Icon(Icons.menu_open),
-                              tooltip: AppLocalizations.of(context)!.close,
-                              onPressed: () =>
-                                  setState(() => _navHidden = true),
-                            ),
-                            extended: appState.sharedPreferencesProvider
-                                .getSideBarExpanded(),
-                            destinations: [
-                              // Sidebar Items
-                              NavigationRailDestination(
-                                icon: const Icon(Icons.home),
-                                label: Text(
-                                    AppLocalizations.of(context)!.home), // Home
-                              ),
-                              NavigationRailDestination(
-                                disabled: !appState.connector!.connected,
-                                icon: const Icon(Icons.widgets),
-                                label: Text(
-                                    AppLocalizations.of(context)!.slot_manager),
-                              ),
-                              NavigationRailDestination(
-                                icon: const Icon(Icons.auto_awesome_motion),
-                                label: Text(
-                                    AppLocalizations.of(context)!.saved_cards),
-                              ),
-                              NavigationRailDestination(
-                                disabled: !appState.connector!.connected,
-                                icon: const Icon(Icons.sensors),
-                                label: Text(
-                                    AppLocalizations.of(context)!.read_card),
-                              ),
-                              NavigationRailDestination(
-                                disabled: !appState.connector!.connected,
-                                icon: const Icon(Icons.system_update_alt),
-                                label: Text(
-                                    AppLocalizations.of(context)!.write_card),
-                              ),
-                              NavigationRailDestination(
-                                icon: const Icon(Icons.handyman),
-                                label:
-                                    Text(AppLocalizations.of(context)!.tools),
-                              ),
-                              NavigationRailDestination(
-                                icon: const Icon(Icons.settings),
-                                label: Text(
-                                    AppLocalizations.of(context)!.settings),
-                              ),
-                              if (appState.devMode)
-                                NavigationRailDestination(
-                                  icon: const Icon(Icons.bug_report),
-                                  label: Text(
-                                      '🐞 ${AppLocalizations.of(context)!.debug} 🐞'),
+                              child: NavigationRail(
+                                key: appState.navigationRailKey,
+                                // Sidebar
+                                leading: IconButton(
+                                  icon: const Icon(Icons.menu_open),
+                                  tooltip: AppLocalizations.of(context)!.close,
+                                  onPressed: () =>
+                                      setState(() => _navHidden = true),
                                 ),
-                            ],
-                            selectedIndex: selectedIndex,
-                            onDestinationSelected: (value) {
-                              setState(() {
-                                selectedIndex = value;
-                              });
-                            },
-                          ),
-                        ))
+                                extended: appState.sharedPreferencesProvider
+                                    .getSideBarExpanded(),
+                                destinations:
+                                    _railDestinations(context, appState),
+                                selectedIndex: selectedIndex,
+                                onDestinationSelected: (value) {
+                                  setState(() {
+                                    selectedIndex = value;
+                                  });
+                                },
+                              ),
+                            ))
                       : const SizedBox(),
                   Expanded(
                     child: Container(
@@ -499,6 +467,165 @@ class _MainPageState extends State<MainPage> {
               bottomNavigationBar: const BottomProgressBar()),
         );
       }),
+    );
+  }
+
+  List<NavigationRailDestination> _railDestinations(
+      BuildContext context, ChameleonGUIState appState) {
+    final localizations = AppLocalizations.of(context)!;
+    final connected = appState.connector!.connected;
+    return [
+      NavigationRailDestination(
+        icon: const Icon(Icons.home_outlined),
+        selectedIcon: const Icon(Icons.home),
+        label: Text(localizations.home),
+      ),
+      NavigationRailDestination(
+        disabled: !connected,
+        icon: const Icon(Icons.widgets_outlined),
+        selectedIcon: const Icon(Icons.widgets),
+        label: Text(localizations.slot_manager),
+      ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.style_outlined),
+        selectedIcon: const Icon(Icons.style),
+        label: Text(localizations.saved_cards),
+      ),
+      NavigationRailDestination(
+        disabled: !connected,
+        icon: const Icon(Icons.sensors),
+        label: Text(localizations.read_card),
+      ),
+      NavigationRailDestination(
+        disabled: !connected,
+        icon: const Icon(Icons.system_update_alt),
+        label: Text(localizations.write_card),
+      ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.handyman_outlined),
+        selectedIcon: const Icon(Icons.handyman),
+        label: Text(localizations.tools),
+      ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.settings_outlined),
+        selectedIcon: const Icon(Icons.settings),
+        label: Text(localizations.settings),
+      ),
+      if (appState.devMode)
+        NavigationRailDestination(
+          icon: const Icon(Icons.bug_report_outlined),
+          selectedIcon: const Icon(Icons.bug_report),
+          label: Text(localizations.debug),
+        ),
+    ];
+  }
+
+  // Pages that get a dedicated tab on phones; everything else lives behind
+  // the "More" tab.
+  static const List<int> _phonePrimaryPages = [0, 1, 2, 3];
+  static const int _moreTabIndex = 4;
+
+  Widget _buildBottomNavigation(
+      BuildContext context, ChameleonGUIState appState) {
+    final localizations = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final connected = appState.connector!.connected;
+    final moreSelected = !_phonePrimaryPages.contains(selectedIndex);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const BottomProgressBar(),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: theme.dividerColor, width: 0.5),
+            ),
+          ),
+          child: NavigationBar(
+            selectedIndex: moreSelected ? _moreTabIndex : selectedIndex,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            onDestinationSelected: (value) {
+              if (value == _moreTabIndex) {
+                _showMoreSheet(context, appState);
+                return;
+              }
+              setState(() => selectedIndex = value);
+            },
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.home_outlined),
+                selectedIcon: const Icon(Icons.home),
+                label: localizations.home,
+              ),
+              NavigationDestination(
+                enabled: connected,
+                icon: const Icon(Icons.widgets_outlined),
+                selectedIcon: const Icon(Icons.widgets),
+                label: localizations.slot_manager,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.style_outlined),
+                selectedIcon: const Icon(Icons.style),
+                label: localizations.saved_cards,
+              ),
+              NavigationDestination(
+                enabled: connected,
+                icon: const Icon(Icons.sensors),
+                label: localizations.read_card,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.more_horiz),
+                label: localizations.more,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showMoreSheet(BuildContext context, ChameleonGUIState appState) {
+    final localizations = AppLocalizations.of(context)!;
+    final connected = appState.connector!.connected;
+    final accent = Theme.of(context).colorScheme.primary;
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) {
+        Widget item(int index, IconData icon, String label,
+            {bool enabled = true}) {
+          final selected = selectedIndex == index;
+          return ListTile(
+            enabled: enabled,
+            selected: selected,
+            selectedColor: accent,
+            leading: Icon(icon),
+            title: Text(label),
+            trailing: selected ? Icon(Icons.check, color: accent) : null,
+            onTap: () {
+              Navigator.pop(sheetContext);
+              setState(() => selectedIndex = index);
+            },
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              item(4, Icons.system_update_alt, localizations.write_card,
+                  enabled: connected),
+              item(5, Icons.handyman_outlined, localizations.tools),
+              item(6, Icons.settings_outlined, localizations.settings),
+              if (appState.devMode)
+                item(7, Icons.bug_report_outlined, localizations.debug),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }

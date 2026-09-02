@@ -1,4 +1,5 @@
 import 'package:chameleonultragui/gui/component/error_page.dart';
+import 'package:chameleonultragui/gui/component/ios_widgets.dart';
 import 'package:chameleonultragui/gui/menu/dialogs/chameleon_settings.dart';
 import 'package:chameleonultragui/helpers/definitions.dart';
 import 'package:chameleonultragui/helpers/flash.dart';
@@ -14,6 +15,15 @@ import 'dart:math';
 // Localizations
 import 'package:chameleonultragui/generated/i18n/app_localizations.dart';
 
+typedef _HomeData = ({
+  IconData batteryIcon,
+  BatteryCharge battery,
+  String usedSlots,
+  List<String> fwVersion,
+  bool isReaderDeviceMode,
+  bool areCapabilitiesSupported,
+});
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -22,16 +32,10 @@ class HomePage extends StatefulWidget {
 }
 
 class HomePageState extends State<HomePage> {
-  int selectedSlot = 1;
   bool isLegacyFirmware = false;
+  Future<_HomeData>? _future;
 
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  Future<((Icon, BatteryCharge), String, List<String>, bool, bool)>
-      getFutureData() async {
+  Future<_HomeData> _getFutureData() async {
     var appState = context.read<ChameleonGUIState>();
     List<SlotTypes> slotTypes = [];
     try {
@@ -40,13 +44,21 @@ class HomePageState extends State<HomePage> {
       appState.log!.e(e);
     }
 
+    final battery = await getBatteryInfo();
     return (
-      await getBatteryInfo(),
-      await getUsedSlotsOut8(slotTypes),
-      await getVersion(),
-      await isReaderDeviceMode(),
-      await areCapabilitiesSupported()
+      batteryIcon: battery.$1,
+      battery: battery.$2,
+      usedSlots: await getUsedSlotsOut8(slotTypes),
+      fwVersion: await getVersion(),
+      isReaderDeviceMode: await isReaderDeviceMode(),
+      areCapabilitiesSupported: await areCapabilitiesSupported(),
     );
+  }
+
+  void _reload() {
+    setState(() {
+      _future = _getFutureData();
+    });
   }
 
   Future<bool> areCapabilitiesSupported() async {
@@ -77,9 +89,9 @@ class HomePageState extends State<HomePage> {
     return true;
   }
 
-  Future<(Icon, BatteryCharge)> getBatteryInfo() async {
+  Future<(IconData, BatteryCharge)> getBatteryInfo() async {
     var appState = context.read<ChameleonGUIState>();
-    var icon = const Icon(Icons.battery_unknown);
+    IconData icon = Icons.battery_unknown;
     BatteryCharge battery = BatteryCharge(percent: 0, voltage: 0);
 
     try {
@@ -87,23 +99,23 @@ class HomePageState extends State<HomePage> {
     } catch (_) {}
 
     if (battery.percent > 98) {
-      icon = const Icon(Icons.battery_full);
+      icon = Icons.battery_full;
     } else if (battery.percent > 87) {
-      icon = const Icon(Icons.battery_6_bar);
+      icon = Icons.battery_6_bar;
     } else if (battery.percent > 75) {
-      icon = const Icon(Icons.battery_5_bar);
+      icon = Icons.battery_5_bar;
     } else if (battery.percent > 62) {
-      icon = const Icon(Icons.battery_4_bar);
+      icon = Icons.battery_4_bar;
     } else if (battery.percent > 50) {
-      icon = const Icon(Icons.battery_3_bar);
+      icon = Icons.battery_3_bar;
     } else if (battery.percent > 37) {
-      icon = const Icon(Icons.battery_2_bar);
+      icon = Icons.battery_2_bar;
     } else if (battery.percent > 10) {
-      icon = const Icon(Icons.battery_1_bar);
+      icon = Icons.battery_1_bar;
     } else if (battery.percent > 3) {
-      icon = const Icon(Icons.battery_0_bar);
+      icon = Icons.battery_0_bar;
     } else if (battery.percent > 0) {
-      icon = const Icon(Icons.battery_alert);
+      icon = Icons.battery_alert;
     }
 
     return (icon, battery);
@@ -166,22 +178,7 @@ class HomePageState extends State<HomePage> {
                 child: Text(localizations.update),
                 onPressed: () async {
                   Navigator.of(context).pop();
-                  var localizations = AppLocalizations.of(context)!;
-                  var scaffoldMessenger = ScaffoldMessenger.of(context);
-                  var snackBar = SnackBar(
-                    content: Text(localizations.downloading_fw(
-                        chameleonDeviceName(appState.connector!.device))),
-                    action: SnackBarAction(
-                      label: localizations.close,
-                      onPressed: () {
-                        scaffoldMessenger.hideCurrentSnackBar();
-                      },
-                    ),
-                  );
-
-                  scaffoldMessenger.showSnackBar(snackBar);
-                  await flashFirmware(appState,
-                      scaffoldMessenger: scaffoldMessenger);
+                  await _flashLatestFirmware();
                 },
               ),
               TextButton(
@@ -204,381 +201,396 @@ class HomePageState extends State<HomePage> {
     return await appState.communicator!.isReaderDeviceMode();
   }
 
+  /// Downloads and flashes the latest firmware, with the usual snackbar.
+  Future<void> _flashLatestFirmware() async {
+    var appState = context.read<ChameleonGUIState>();
+    var localizations = AppLocalizations.of(context)!;
+    var scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    scaffoldMessenger.hideCurrentSnackBar();
+    scaffoldMessenger.showSnackBar(SnackBar(
+      content: Text(localizations
+          .downloading_fw(chameleonDeviceName(appState.connector!.device))),
+      action: SnackBarAction(
+        label: localizations.close,
+        onPressed: scaffoldMessenger.hideCurrentSnackBar,
+      ),
+    ));
+
+    try {
+      await flashFirmware(appState, scaffoldMessenger: scaffoldMessenger);
+    } catch (e) {
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(SnackBar(
+        content: Text('${localizations.update_error}: ${e.toString()}'),
+        action: SnackBarAction(
+          label: localizations.close,
+          onPressed: scaffoldMessenger.hideCurrentSnackBar,
+        ),
+      ));
+    }
+  }
+
+  Future<void> _checkForUpdates(List<String> fwVersion) async {
+    var appState = context.read<ChameleonGUIState>();
+    var localizations = AppLocalizations.of(context)!;
+    var scaffoldMessenger = ScaffoldMessenger.of(context);
+    String latestCommit;
+
+    try {
+      latestCommit = await latestAvailableCommit(appState.connector!.device);
+    } catch (e) {
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(SnackBar(
+        content: Text('${localizations.update_error}: ${e.toString()}'),
+        action: SnackBarAction(
+          label: localizations.close,
+          onPressed: () {},
+        ),
+      ));
+      return;
+    }
+
+    try {
+      fwVersion[1] = await resolveCommit(fwVersion[1]);
+    } catch (_) {}
+
+    appState.log!
+        .i("Latest commit: $latestCommit, current commit ${fwVersion[1]}");
+
+    if (latestCommit.isEmpty) {
+      return;
+    }
+
+    if (latestCommit.startsWith(fwVersion[1])) {
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(SnackBar(
+        content: Text(localizations
+            .up_to_date(chameleonDeviceName(appState.connector!.device))),
+        action: SnackBarAction(
+          label: localizations.close,
+          onPressed: () {},
+        ),
+      ));
+    } else {
+      await _flashLatestFirmware();
+    }
+  }
+
+  Future<void> _setReaderMode(bool reader) async {
+    var appState = context.read<ChameleonGUIState>();
+    try {
+      await appState.communicator!.setReaderDeviceMode(reader);
+    } catch (e) {
+      appState.log!.e(e);
+    }
+    if (!mounted) {
+      return;
+    }
+    _reload();
+    appState.changesMade();
+  }
+
+  Color _batteryColor(int percent, ThemeData theme) {
+    if (percent > 50) {
+      return const Color(0xFF34C759);
+    } else if (percent > 20) {
+      return Colors.orange;
+    } else if (percent > 0) {
+      return theme.colorScheme.error;
+    }
+    return theme.colorScheme.onSurface.withValues(alpha: 0.5);
+  }
+
   @override
   Widget build(BuildContext context) {
     var appState = context.read<ChameleonGUIState>();
     var localizations = AppLocalizations.of(context)!;
-    var scaffoldMessenger = ScaffoldMessenger.of(context);
-    return FutureBuilder(
-        future: getFutureData(),
-        builder: (BuildContext context, AsyncSnapshot snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Scaffold(
-              appBar: AppBar(
-                title: Text(localizations.home),
-              ),
-              body: const Center(child: CircularProgressIndicator()),
-            );
-          } else if (snapshot.hasError) {
-            appState.disconnect();
-            return Scaffold(
-              appBar: AppBar(
-                title: Text(localizations.home),
-              ),
-              body: Center(
-                  child: ErrorPage(errorMessage: snapshot.error.toString())),
-            );
-          } else {
-            final (
-              batteryInfo,
-              usedSlots,
-              fwVersion,
-              isReaderDeviceMode,
-              areCapabilitiesSupported,
-            ) = snapshot.data;
+    _future ??= _getFutureData();
 
-            return Scaffold(
-              appBar: AppBar(
-                title: Text(localizations.home),
-              ),
-              body: Center(
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(localizations.home),
+        actions: [
+          IconButton(
+            tooltip: localizations.device_settings,
+            icon: const Icon(Icons.tune),
+            onPressed: () => showDialog<String>(
+                context: context,
+                builder: (BuildContext dialogContext) =>
+                    const ChameleonSettings()),
+          ),
+        ],
+      ),
+      body: FutureBuilder<_HomeData>(
+          future: _future,
+          builder: (BuildContext context, AsyncSnapshot<_HomeData> snapshot) {
+            if (snapshot.hasError) {
+              appState.disconnect();
+              return Center(
+                  child: ErrorPage(errorMessage: snapshot.error.toString()));
+            }
+
+            if (!snapshot.hasData) {
+              return const Center(child: AdaptiveProgress());
+            }
+
+            return _buildBody(context, appState, localizations, snapshot.data!);
+          }),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, ChameleonGUIState appState,
+      AppLocalizations localizations, _HomeData data) {
+    final theme = Theme.of(context);
+    final isDemo = appState.connector!.portName == "Demo";
+    final isBle = appState.connector!.connectionType == ConnectionType.ble;
+    final deviceName =
+        "Chameleon ${chameleonDeviceName(appState.connector!.device)}";
+    final imageHeight = min(MediaQuery.of(context).size.height * 0.26, 240.0);
+    final batteryColor = _batteryColor(data.battery.percent, theme);
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        _reload();
+        try {
+          await _future;
+        } catch (_) {}
+      },
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(top: 8, bottom: 32),
+            children: [
+              // Hero: device render, name and connection chips.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                IconButton(
-                                  onPressed: () async {
-                                    // Disconnect
-                                    await appState.disconnect(manual: true);
-                                  },
-                                  icon: const Icon(Icons.close),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                    flex: 1,
-                                    child: FittedBox(
-                                        alignment: Alignment.centerRight,
-                                        fit: BoxFit.scaleDown,
-                                        child: Row(children: [
-                                          Text(
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              appState.connector!.portName,
-                                              style:
-                                                  const TextStyle(fontSize: 20))
-                                        ]))),
-                                Icon(appState.connector!.connectionType ==
-                                        ConnectionType.ble
-                                    ? Icons.bluetooth
-                                    : Icons.usb),
-                                Tooltip(
-                                  message: localizations.battery_info(
-                                      batteryInfo.$2.percent,
-                                      batteryInfo.$2.voltage),
-                                  child: batteryInfo.$1,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                    Image.asset(
+                      appState.connector!.device == ChameleonDevice.ultra
+                          ? 'assets/black-ultra-standing-front.webp'
+                          : 'assets/black-lite-standing-front.webp',
+                      height: imageHeight,
+                      fit: BoxFit.contain,
                     ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    const SizedBox(height: 12),
+                    Text(
+                      deviceName,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Text(
-                            "Chameleon ${chameleonDeviceName(appState.connector!.device)}",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: min(
-                                MediaQuery.of(context).size.width / 25,
-                                MediaQuery.of(context).size.height / 20,
-                              ),
-                            )),
+                        _InfoChip(
+                          icon: isBle ? Icons.bluetooth : Icons.usb,
+                          label: appState.connector!.portName,
+                        ),
+                        Tooltip(
+                          message: localizations.battery_info(
+                              data.battery.percent, data.battery.voltage),
+                          child: _InfoChip(
+                            icon: data.batteryIcon,
+                            iconColor: batteryColor,
+                            label: '${data.battery.percent}%',
+                          ),
+                        ),
                       ],
-                    ),
-                    const SizedBox(height: 20),
-                    Text("${localizations.used_slots}: $usedSlots/8",
-                        style: TextStyle(
-                          fontSize: min(
-                            MediaQuery.of(context).size.width / 35,
-                            MediaQuery.of(context).size.height / 20,
-                          ),
-                        )),
-                    const FittedBox(
-                        alignment: Alignment.center,
-                        fit: BoxFit.scaleDown,
-                        child: SlotChanger()),
-                    Expanded(
-                      child: FractionallySizedBox(
-                        widthFactor: 0.4,
-                        child: Image.asset(
-                          appState.connector!.device == ChameleonDevice.ultra
-                              ? 'assets/black-ultra-standing-front.webp'
-                              : 'assets/black-lite-standing-front.webp',
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (appState.connector!.portName != "Demo")
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text("${localizations.firmware_version}: ",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: min(
-                                  MediaQuery.of(context).size.width / 50,
-                                  MediaQuery.of(context).size.height / 30,
-                                ),
-                              )),
-                          Text(fwVersion[0],
-                              style: TextStyle(
-                                fontSize: min(
-                                  MediaQuery.of(context).size.width / 50,
-                                  MediaQuery.of(context).size.height / 30,
-                                ),
-                              )),
-                          Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: IconButton(
-                              onPressed: () async {
-                                SnackBar snackBar;
-                                String latestCommit;
-
-                                try {
-                                  latestCommit = await latestAvailableCommit(
-                                      appState.connector!.device);
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    scaffoldMessenger.hideCurrentSnackBar();
-                                    snackBar = SnackBar(
-                                      content: Text(
-                                          '${localizations.update_error}: ${e.toString()}'),
-                                      action: SnackBarAction(
-                                        label: localizations.close,
-                                        onPressed: () {},
-                                      ),
-                                    );
-
-                                    scaffoldMessenger.showSnackBar(snackBar);
-                                  }
-                                  return;
-                                }
-
-                                try {
-                                  fwVersion[1] =
-                                      await resolveCommit(fwVersion[1]);
-                                } catch (_) {}
-
-                                appState.log!.i(
-                                    "Latest commit: $latestCommit, current commit ${fwVersion[1]}");
-
-                                if (latestCommit.isEmpty) {
-                                  return;
-                                }
-
-                                if (latestCommit.startsWith(fwVersion[1]) &&
-                                    context.mounted) {
-                                  snackBar = SnackBar(
-                                    content: Text(localizations.up_to_date(
-                                        chameleonDeviceName(
-                                            appState.connector!.device))),
-                                    action: SnackBarAction(
-                                      label: localizations.close,
-                                      onPressed: () {},
-                                    ),
-                                  );
-
-                                  scaffoldMessenger.showSnackBar(snackBar);
-                                } else if (context.mounted) {
-                                  snackBar = SnackBar(
-                                    content: Text(localizations.downloading_fw(
-                                        chameleonDeviceName(
-                                            appState.connector!.device))),
-                                    action: SnackBarAction(
-                                      label: localizations.close,
-                                      onPressed: () {
-                                        scaffoldMessenger.hideCurrentSnackBar();
-                                      },
-                                    ),
-                                  );
-
-                                  scaffoldMessenger.showSnackBar(snackBar);
-                                  try {
-                                    await flashFirmware(appState,
-                                        scaffoldMessenger: scaffoldMessenger);
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      scaffoldMessenger.hideCurrentSnackBar();
-                                      snackBar = SnackBar(
-                                        content: Text(
-                                            '${localizations.update_error}: ${e.toString()}'),
-                                        action: SnackBarAction(
-                                          label: localizations.close,
-                                          onPressed: () {
-                                            scaffoldMessenger
-                                                .hideCurrentSnackBar();
-                                          },
-                                        ),
-                                      );
-
-                                      scaffoldMessenger.showSnackBar(snackBar);
-                                    }
-                                  }
-                                }
-                              },
-                              tooltip: localizations.check_updates,
-                              icon: const Icon(Icons.update),
-                            ),
-                          ),
-                        ],
-                      ),
-                    if (appState.connector!.portName == "Demo")
-                      Container(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: appState.sharedPreferencesProvider
-                              .getThemeComplementaryColor(),
-                          borderRadius:
-                              const BorderRadius.all(Radius.circular(8.0)),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                            ),
-                            const SizedBox(width: 16.0),
-                            Expanded(
-                              child: Text(
-                                localizations.demo_firmware,
-                                style: const TextStyle(
-                                  fontSize: 16.0,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (!areCapabilitiesSupported &&
-                        appState.connector!.portName != "Demo")
-                      Container(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: appState.sharedPreferencesProvider
-                              .getThemeComplementaryColor(),
-                          borderRadius:
-                              const BorderRadius.all(Radius.circular(8.0)),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                            ),
-                            const SizedBox(width: 16.0),
-                            Expanded(
-                              child: Text(
-                                localizations.please_update_firmware,
-                                style: const TextStyle(
-                                  fontSize: 16.0,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                var localizations =
-                                    AppLocalizations.of(context)!;
-                                var scaffoldMessenger =
-                                    ScaffoldMessenger.of(context);
-                                var snackBar = SnackBar(
-                                  content: Text(localizations.downloading_fw(
-                                      chameleonDeviceName(
-                                          appState.connector!.device))),
-                                  action: SnackBarAction(
-                                    label: localizations.close,
-                                    onPressed: () {
-                                      scaffoldMessenger.hideCurrentSnackBar();
-                                    },
-                                  ),
-                                );
-
-                                scaffoldMessenger.showSnackBar(snackBar);
-                                await flashFirmware(appState,
-                                    scaffoldMessenger: scaffoldMessenger);
-                              },
-                              child: Text(localizations.update),
-                            ),
-                          ],
-                        ),
-                      ),
-                    Align(
-                      alignment: Alignment.bottomRight,
-                      child: Row(
-                        children: [
-                          const Spacer(),
-                          (isReaderDeviceMode)
-                              ? Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: IconButton(
-                                    onPressed: () async {
-                                      await appState.communicator!
-                                          .setReaderDeviceMode(false);
-                                      setState(() {});
-                                      appState.changesMade();
-                                    },
-                                    tooltip: localizations.emulator_mode,
-                                    icon: const Icon(Icons.nfc_sharp),
-                                  ),
-                                )
-                              : Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: IconButton(
-                                    onPressed: () async {
-                                      await appState.communicator!
-                                          .setReaderDeviceMode(true);
-                                      setState(() {});
-                                      appState.changesMade();
-                                    },
-                                    tooltip: localizations.reader_mode,
-                                    icon: const Icon(Icons.barcode_reader),
-                                  ),
-                                ),
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: IconButton(
-                              onPressed: () => showDialog<String>(
-                                  context: context,
-                                  builder: (BuildContext dialogContext) =>
-                                      const ChameleonSettings()),
-                              icon: const Icon(Icons.settings),
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ],
                 ),
               ),
-            );
-          }
-        });
+
+              if (isDemo)
+                _Banner(
+                  icon: Icons.info_outline,
+                  text: localizations.demo_firmware,
+                ),
+              if (!data.areCapabilitiesSupported && !isDemo)
+                _Banner(
+                  icon: Icons.system_update_alt,
+                  text: localizations.please_update_firmware,
+                  action: TextButton(
+                    onPressed: _flashLatestFirmware,
+                    child: Text(localizations.update),
+                  ),
+                ),
+
+              // Slots
+              IosListSection(
+                header: localizations.active_slot,
+                footer: localizations.tap_slot_to_activate,
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(10, 12, 10, 12),
+                    child: SlotChanger(),
+                  ),
+                ],
+              ),
+
+              // Status
+              IosListSection(
+                header: localizations.status,
+                children: [
+                  ListTile(
+                    leading: Icon(data.batteryIcon, color: batteryColor),
+                    title: Text(localizations.battery),
+                    subtitle: Text('${data.battery.voltage} mV'),
+                    trailing: Text(
+                      '${data.battery.percent}%',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.widgets_outlined),
+                    title: Text(localizations.used_slots),
+                    trailing: Text(
+                      '${data.usedSlots} / 8',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (!isDemo)
+                    ListTile(
+                      leading: const Icon(Icons.memory),
+                      title: Text(localizations.firmware_version),
+                      subtitle: Text(data.fwVersion[0]),
+                      trailing: IconButton(
+                        tooltip: localizations.check_updates,
+                        icon: const Icon(Icons.update),
+                        onPressed: () => _checkForUpdates(data.fwVersion),
+                      ),
+                    ),
+                ],
+              ),
+
+              // Mode
+              IosListSection(
+                header: localizations.mode,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<bool>(
+                        showSelectedIcon: false,
+                        segments: [
+                          ButtonSegment(
+                            value: false,
+                            icon: const Icon(Icons.nfc),
+                            label: Text(localizations.emulator_mode),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            icon: const Icon(Icons.contactless_outlined),
+                            label: Text(localizations.reader_mode),
+                          ),
+                        ],
+                        selected: {data.isReaderDeviceMode},
+                        onSelectionChanged: (selection) =>
+                            _setReaderMode(selection.first),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Disconnect
+              IosListSection(
+                children: [
+                  ListTile(
+                    leading:
+                        Icon(Icons.link_off, color: theme.colorScheme.error),
+                    title: Text(
+                      localizations.disconnect,
+                      style: TextStyle(color: theme.colorScheme.error),
+                    ),
+                    onTap: () async {
+                      await appState.disconnect(manual: true);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small rounded pill with an icon and a label, used for the port and battery.
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+  final String label;
+
+  const _InfoChip({required this.icon, required this.label, this.iconColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.7);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 17, color: iconColor ?? muted),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w500, color: muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tinted inline notice (demo firmware, outdated firmware).
+class _Banner extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Widget? action;
+
+  const _Banner({required this.icon, required this.text, this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    const tint = Colors.orange;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: tint),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 14)),
+          ),
+          if (action != null) action!,
+        ],
+      ),
+    );
   }
 }

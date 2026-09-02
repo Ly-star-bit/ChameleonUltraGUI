@@ -94,10 +94,31 @@ ThemeData buildIosTheme(Brightness brightness, Color accent) {
       backgroundColor: cardBg,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      height: 64,
       indicatorColor: accent.withValues(alpha: 0.16),
-      labelTextStyle: const WidgetStatePropertyAll(
-        TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-      ),
+      iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? accent
+                : onSurface.withValues(alpha: 0.55),
+          )),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: states.contains(WidgetState.selected)
+                ? accent
+                : onSurface.withValues(alpha: 0.55),
+          )),
+    ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: cardBg,
+      indicatorColor: accent.withValues(alpha: 0.16),
+      selectedIconTheme: IconThemeData(color: accent),
+      selectedLabelTextStyle:
+          TextStyle(color: accent, fontWeight: FontWeight.w600),
+      unselectedIconTheme:
+          IconThemeData(color: onSurface.withValues(alpha: 0.55)),
+      unselectedLabelTextStyle:
+          TextStyle(color: onSurface.withValues(alpha: 0.7)),
     ),
     listTileTheme: const ListTileThemeData(
       dense: false,
@@ -105,6 +126,37 @@ ThemeData buildIosTheme(Brightness brightness, Color accent) {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(foregroundColor: accent),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: accent,
+        side: BorderSide(color: accent.withValues(alpha: 0.5)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: SegmentedButton.styleFrom(
+        selectedBackgroundColor: accent,
+        selectedForegroundColor: Colors.white,
+        foregroundColor: onSurface,
+        side: BorderSide(color: separator),
+        visualDensity: VisualDensity.compact,
+      ),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: accent,
+      foregroundColor: Colors.white,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: cardBg,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(

@@ -654,5 +654,19 @@
   "more": "\u66f4\u591a",
   "edit": "\u7f16\u8f91",
   "no_cards": "\u8fd8\u6ca1\u6709\u5361\u7247",
-  "no_cards_hint": "\u8bfb\u53d6\u4e00\u5f20\u5361\u6216\u5bfc\u5165,\u5c31\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002"
+  "no_cards_hint": "\u8bfb\u53d6\u4e00\u5f20\u5361\u6216\u5bfc\u5165,\u5c31\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002",
+  "disconnect": "断开连接",
+  "battery": "电池",
+  "status": "状态",
+  "active_slot": "当前卡槽",
+  "mode": "模式",
+  "appearance": "外观",
+  "connection": "连接",
+  "general": "通用",
+  "backup_restore": "备份与恢复",
+  "developer": "开发者",
+  "searching_for_devices": "正在搜索设备…",
+  "no_devices_found": "未找到设备",
+  "no_devices_hint": "请用 USB 连接 Chameleon，或打开蓝牙并靠近设备。",
+  "tap_slot_to_activate": "点击卡槽即可切换"
 }

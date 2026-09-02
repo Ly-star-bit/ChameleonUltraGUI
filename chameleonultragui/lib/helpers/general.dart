@@ -425,7 +425,7 @@ void updateNavigationRailWidth(BuildContext context) async {
     var appState = Provider.of<ChameleonGUIState>(context, listen: false);
     await asyncSleep(500);
     appState.navigationRailSize =
-        appState.navigationRailKey.currentContext!.size;
+        appState.navigationRailKey.currentContext?.size;
     appState.changesMade();
   }
 }
