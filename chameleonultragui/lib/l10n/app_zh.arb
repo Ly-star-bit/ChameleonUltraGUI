@@ -644,7 +644,7 @@
   "retry": "\u91cd\u8bd5",
   "smart_copy": "\u667a\u80fd\u514b\u9686",
   "smart_copy_description": "\u4e00\u952e\u514b\u9686\uff1a\u8bfb\u5361\u5e76\u76f4\u63a5\u5f00\u59cb\u6a21\u62df",
-  "smart_copy_hint": "\u628a\u5b9e\u4f53\u5361\u653e\u5230\u8bbe\u5907\u4e0a\uff0c\u70b9\u51fb\u590d\u5236\u3002\u5361\u7247\u4f1a\u88ab\u514b\u9686\u5230\u7a7a\u95f2\u5361\u69fd\u5e76\u81ea\u52a8\u5f00\u59cb\u6a21\u62df\u3002",
+  "smart_copy_hint": "把实体卡放到设备上，点击复制。卡片会被克隆到空闲卡槽并自动开始模拟。若是 Mifare Classic，会自动恢复密钥并读取扇区数据，恢复期间请让卡一直贴着设备。",
   "smart_copy_start": "\u5f00\u59cb\u590d\u5236",
   "smart_copy_reading": "\u6b63\u5728\u8bfb\u5361\u2026\u2026",
   "smart_copy_writing": "\u6b63\u5728\u5199\u5165\u5361\u69fd\u2026\u2026",

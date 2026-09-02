@@ -645,7 +645,7 @@
   "retry": "Retry",
   "smart_copy": "Smart Copy",
   "smart_copy_description": "One-tap clone: read a card and start emulating it",
-  "smart_copy_hint": "Place the card on the reader, then tap Copy. It is cloned to a free slot and emulation starts automatically.",
+  "smart_copy_hint": "Place the card on the reader, then tap Copy. It is cloned to a free slot and emulation starts automatically. For Mifare Classic, keys are recovered and sectors dumped, so keep the card on the reader until it finishes.",
   "smart_copy_start": "Copy",
   "smart_copy_reading": "Reading card…",
   "smart_copy_writing": "Writing to slot…",

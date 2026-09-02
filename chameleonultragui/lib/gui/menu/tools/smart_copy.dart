@@ -4,6 +4,8 @@ import 'package:chameleonultragui/generated/i18n/app_localizations.dart';
 import 'package:chameleonultragui/helpers/definitions.dart';
 import 'package:chameleonultragui/helpers/feedback.dart' as feedback;
 import 'package:chameleonultragui/helpers/general.dart';
+import 'package:chameleonultragui/helpers/mifare_classic/general.dart';
+import 'package:chameleonultragui/helpers/mifare_classic/recovery.dart';
 import 'package:chameleonultragui/helpers/slot_write.dart';
 import 'package:chameleonultragui/main.dart';
 import 'package:chameleonultragui/sharedprefsprovider.dart';
@@ -14,8 +16,14 @@ enum CopyStage { idle, reading, writing, done, error }
 
 /// One-tap "clone a physical card": read the card on the reader, pick a free
 /// slot, write it there and start emulating — no manual slot picking or type
-/// selection. Full data is only cloned for cards whose keys are known;
-/// otherwise the UID/anti-collision is cloned, which is enough for UID-based
+/// selection.
+///
+/// For Mifare Classic the read step now runs the full key-recovery pipeline —
+/// every key from the user's dictionaries plus the built-in defaults, then a
+/// nested/hardnested crack for whatever is left — and dumps the sectors it can
+/// read, so the clone carries real sector data, not just the UID. Sectors whose
+/// keys could not be recovered are cloned as zero blocks; if nothing at all can
+/// be read the flow falls back to a UID-only clone, which still opens UID-based
 /// access systems.
 class SmartCopyMenu extends StatefulWidget {
   const SmartCopyMenu({super.key});
@@ -29,6 +37,7 @@ class SmartCopyMenuState extends State<SmartCopyMenu> {
   int progress = 0;
   String? resultMessage;
   String? errorMessage;
+  String? subStatus;
 
   Future<int> _firstFreeSlot(ChameleonGUIState appState) async {
     final enabled = await appState.communicator!.getEnabledSlots();
@@ -41,6 +50,65 @@ class SmartCopyMenuState extends State<SmartCopyMenu> {
     return appState.communicator!.getActiveSlot();
   }
 
+  /// Runs the full Mifare Classic recovery on the card sitting on the reader
+  /// and returns its per-block dump (256-entry list; unreadable blocks are
+  /// zeroed). The card must stay on the antenna for the whole call.
+  Future<List<Uint8List>> _recoverClassicData(
+      ChameleonGUIState appState, AppLocalizations localizations) async {
+    late final MifareClassicRecovery recovery;
+    recovery = MifareClassicRecovery(
+      appState: appState,
+      localizations: localizations,
+      update: () {
+        if (mounted) {
+          setState(() {
+            subStatus = recovery.state.isNotEmpty ? recovery.state : null;
+            if (recovery.dumpProgress > 0) {
+              progress = (recovery.dumpProgress * 100).round();
+            }
+          });
+        }
+      },
+    );
+
+    await recovery.initialize();
+
+    // Try every key the user has stored, plus the built-in defaults that
+    // checkKeys() always appends. Merge all 6-byte dictionaries into one so a
+    // single pass covers them all (the manual UI only lets you pick one).
+    final stored =
+        appState.sharedPreferencesProvider.getDictionaries(keyLength: 12);
+    final mergedKeys = <Uint8List>[];
+    for (final dictionary in stored) {
+      mergedKeys.addAll(dictionary.keys);
+    }
+    recovery.dictionaries = [
+      Dictionary(id: "smart_copy", name: localizations.smart_copy, keys: mergedKeys)
+    ];
+    recovery.selectedDictionary = recovery.dictionaries.first;
+
+    // 1) Dictionary + default keys (fast).
+    await recovery.checkKeys();
+
+    // 2) Crack whatever is still unknown (nested / hardnested). Slow, and may
+    //    fail on hardened sectors — keep the keys we already have either way.
+    if (!recovery.allKeysExists) {
+      try {
+        await recovery.recoverKeys();
+      } catch (_) {
+        // Ignore: dump proceeds with the keys recovered so far.
+      }
+    }
+
+    // 3) Read every sector we hold a key for.
+    await recovery.dumpData();
+
+    if (mounted) {
+      setState(() => subStatus = null);
+    }
+    return recovery.cardData;
+  }
+
   Future<CardSave?> _readCard(
       ChameleonGUIState appState, AppLocalizations localizations) async {
     // Try high frequency first.
@@ -48,13 +116,25 @@ class SmartCopyMenuState extends State<SmartCopyMenu> {
     final hf = info.$1;
     final mfu = info.$3;
     if (hf.cardExist && hf.uid.isNotEmpty) {
+      // For Mifare Classic, recover the keys and dump the sectors so the clone
+      // carries real data (needed by readers that authenticate sectors, not
+      // just the UID). Best effort — on any failure we keep the UID-only clone.
+      List<Uint8List> data = const [];
+      if (isMifareClassic(hf.type)) {
+        try {
+          data = await _recoverClassicData(appState, localizations);
+        } catch (_) {
+          data = const [];
+        }
+      }
+
       return CardSave(
         uid: hf.uid,
         sak: hexToBytes(hf.sak)[0],
         atqa: hexToBytes(hf.atqa),
         name: "${localizations.smart_copy} ${hf.uid}",
         tag: hf.type != TagType.unknown ? hf.type : TagType.mifare1K,
-        data: const [],
+        data: data,
         ats: (hf.ats != localizations.no)
             ? hexToBytes(hf.ats)
             : Uint8List(0),
@@ -95,6 +175,7 @@ class SmartCopyMenuState extends State<SmartCopyMenu> {
       progress = 0;
       resultMessage = null;
       errorMessage = null;
+      subStatus = null;
     });
 
     try {
@@ -179,6 +260,14 @@ class SmartCopyMenuState extends State<SmartCopyMenu> {
               const CircularProgressIndicator(),
               const SizedBox(height: 12),
               Text(localizations.smart_copy_reading),
+              if (subStatus != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  subStatus!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ],
             if (stage == CopyStage.writing) ...[
               LinearProgressIndicator(value: progress / 100),

@@ -135,6 +135,15 @@ jobs:
       - name: Install tools
         run: brew install automake libtool create-dmg
       - run: flutter build macos --release
+      - name: Package macOS app
+        run: |
+          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -1)
+          echo "Packaging $APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" chameleonultragui-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: chameleonultragui/chameleonultragui-macos.zip
 
   build-ios:
     needs: check
@@ -164,17 +173,25 @@ jobs:
       - build-windows
       - build-linux
       - build-linux-legacy
+      - build-macos
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: "{apk,windows,windows-installer,linux,linux-debian,linux-legacy}"
+          pattern: "{apk,windows,windows-installer,linux,linux-debian,linux-legacy,macos}"
           path: release-artifacts
       - name: Create zip files from artifacts
         run: |
           cd release-artifacts
+          # macOS is already packaged as a working .zip (ditto preserves the
+          # .app bundle perms/symlinks) — publish it directly instead of
+          # wrapping it in a second zip.
+          if [ -f macos/chameleonultragui-macos.zip ]; then
+            mv macos/chameleonultragui-macos.zip ./macos.zip
+            rm -rf macos
+          fi
           for dir in */; do
             artifact_name="${dir%/}"
             zip -r "${artifact_name}.zip" "$dir"
@@ -208,17 +225,25 @@ jobs:
       - build-windows
       - build-linux
       - build-linux-legacy
+      - build-macos
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: "{apk,windows,windows-installer,linux,linux-debian,linux-legacy}"
+          pattern: "{apk,windows,windows-installer,linux,linux-debian,linux-legacy,macos}"
           path: release-artifacts
       - name: Create zip files from artifacts
         run: |
           cd release-artifacts
+          # macOS is already packaged as a working .zip (ditto preserves the
+          # .app bundle perms/symlinks) — publish it directly instead of
+          # wrapping it in a second zip.
+          if [ -f macos/chameleonultragui-macos.zip ]; then
+            mv macos/chameleonultragui-macos.zip ./macos.zip
+            rm -rf macos
+          fi
           for dir in */; do
             artifact_name="${dir%/}"
             zip -r "${artifact_name}.zip" "$dir"
